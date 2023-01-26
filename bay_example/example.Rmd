@@ -1,0 +1,237 @@
+---
+title: "Pet Parties"
+output: pdf_document
+date: "2022-09-27"
+---
+
+This document serves as a minimum working example of the technology I'll be using for my thesis project; I will be focusing on a $10km^2$ area in northeastern Ohio and applying dasymetric mapping techniques to it with mock demographic data.
+
+```{r include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE)
+
+library(terra)
+library(dplyr)
+```
+
+```{r echo=FALSE}
+
+# Loading in Raster
+r <- project(rast('data/nlcd_data/NLCD_2019_Land_Cover_L48_20210604_bdSV3pzqsjEt13zGmeV9.tiff'), 'EPSG:4326')
+# Color table containing RGB values for each type of land
+colors <- read.csv('data/nlcd_color_table.csv')
+weights <- cbind(colors$Code, colors$weight)
+
+# human perception of color distance
+yuv_transform <- rbind(c(0.299, 0.587, 0.114), 
+                       c(-0.14713, -0.28886, 0.436), 
+                       c(0.615, -0.51499, -0.10001))
+
+
+yuv_color_mat <- t(apply(as.matrix(colors[, 3:5]), 1, \(x) as.numeric(yuv_transform %*% x)))
+
+
+# function to find the nearest rgb value in our legend to the rgb value seen in the raster.
+# takes a numeric list of 3 integers and returns the index of the row of the colors csv
+# nearest to the observed value.
+match_color <- function(rgb){
+  yuv <- as.numeric(yuv_transform %*% as.numeric(rgb))
+  ind <- which.min(rowSums(yuv_color_mat - yuv)^2)
+  return(ind)
+}
+
+# set value to be active category, so values(r) returns values and as.polygons(r) has values
+activeCat(r) <- 0
+
+# add code and name of land to values df
+indices <- apply(cats(r)[[1]][, 2:4], 1, \(x) match_color(x))
+hexes <- apply(colors[indices, 3:5], 1, \(x) rgb(x[1]/255, x[2]/255, x[3]/255))
+legend_df <- data.frame(value = cats(r)[[1]][,1],
+                        code  = colors[indices, 1],
+                        type  = colors[indices, 2],
+                        hex   = hexes)
+
+r_poly <- as.polygons(r)
+values(r_poly) <- values(r_poly) %>%
+  left_join(legend_df) %>%
+  select(-value)
+r_poly <- aggregate(r_poly, by='code')
+
+```
+
+# Initial Problem
+
+We have an issue. The city is having a pet party at each government building, shown below. However, due to their storied rivalry, no party can accommodate both cats and dogs, so each building must either host a cat party or a dog party.
+
+```{r echo=FALSE}
+set.seed(16)
+
+box_from_centroid <- function(centr){
+  x <- centr[1]
+  y <- centr[2]
+  
+  radius <- .005
+  vertices <- cbind(
+    c(x-radius, x-radius, x+radius, x+radius),
+    c(y - radius, y+radius, y+radius, y-radius)
+  )
+  return(vect(vertices, type='polygons', crs='EPSG:4326'))
+}
+
+lons <- sample(seq(-81.93, -81.91, length.out=100), 5)
+lats <- sample(seq(41.47, 41.485, length.out=100), 5)
+buildings <- cbind(lons, lats)
+
+plot(1, type='n', xlab='Longitude', ylab='Latitude',
+     xlim = c(ext(r)$xmin, ext(r)$xmax), 
+     ylim=c(ext(r)$ymin, ext(r)$ymax))
+points(buildings, pch=20, col='purple', cex=2)
+for(i in 1:nrow(buildings)){
+  plot(box_from_centroid(buildings[i,]), add=TRUE, col='purple', alpha=0.15)
+}
+grid()
+```
+In order to maximize turnout, the city wants to make sure that the buildings are hosting a party that is reflective of the population densities of the pets in the surrounding area, represented by the boxes above. However, the city only has pet census data for the blocks shown below:
+
+```{r echo=FALSE}
+
+lons <- seq(-81.94, -81.90, length.out=5)
+lats <- seq(41.465, 41.49, length.out=5)
+
+# create empty matrix to store vertices, with first row being the geom ID
+polys <- matrix(nrow=16*5, ncol=5)
+colnames(polys) <- c('geom', 'part', 'x', 'y', 'hole')
+
+polys[, 1] <- sort(rep(1:16, 5))
+polys[, 2] <- 1
+polys[, 5] <- 0
+
+for(i in 1:4){
+  for(j in 1:4){
+    ind <- 20 * (i - 1) + 5 * (j - 1) + 1
+    
+    poly_lons <- c(lons[i], lons[i], lons[i+1], lons[i+1], lons[i])
+    poly_lats <- c(lats[j], lats[j+1], lats[j+1], lats[j], lats[j])
+    
+    vertices <- cbind(poly_lons, poly_lats)
+    
+    polys[ind:(ind+4), 3:4] <- vertices
+  }
+}
+d <- data.frame(id=1:16, dog_prop = runif(16))
+polys <- vect(polys, 'polygons', atts=d, crs='EPSG:4326')
+
+
+plot(1, xlab='Longitude', ylab='Latitude',
+     xlim = c(ext(r)$xmin, ext(r)$xmax), 
+     ylim=c(ext(r)$ymin, ext(r)$ymax))
+plot(polys, add=TRUE)
+for(i in 1:nrow(buildings)){
+  plot(box_from_centroid(buildings[i,]), add=TRUE, col='purple', alpha=0.15)
+}
+points(buildings, pch=20, col='purple', cex=2)
+```
+
+```{r echo=FALSE}
+
+plot(1, xlab='Longitude', ylab='Latitude',
+     xlim = c(ext(r)$xmin, ext(r)$xmax), 
+     ylim=c(ext(r)$ymin, ext(r)$ymax))
+plot(r_poly, col = r_poly$hex, add=TRUE)
+plot(polys, lwd=2, add=TRUE)
+for(i in 1:nrow(buildings)){
+  plot(box_from_centroid(buildings[i,]), col='purple', alpha=0.25, add=TRUE)
+}
+points(buildings, pch=20, col='purple', cex=2)
+```
+```{r echo=FALSE}
+bounds <- box_from_centroid(buildings[1,])
+
+plot(1, xlab='Longitude', ylab='Latitude',
+     xlim = c(ext(bounds)$xmin, ext(bounds)$xmax), 
+     ylim = c(ext(bounds)$ymin, ext(bounds)$ymax)
+)
+
+plot(r_poly, col=r_poly$hex, add=TRUE)
+plot(polys, lwd=2, add=TRUE)
+
+plot(box_from_centroid(buildings[1,]), add=TRUE, col='purple', alpha=0.4)
+
+# outlined point hehe
+points(rbind(buildings[1,], buildings[1,]), pch=20, col='black', cex=3)
+points(rbind(buildings[1,], buildings[1,]), pch=20, col='purple', cex=2)
+
+```
+
+
+```{r block-areas, echo=FALSE}
+# first isolate the library that the dog party we're interested in is being held at
+lib <- box_from_centroid(buildings[1,])
+
+# filter polys  to only ones containing overlap
+blocks <- polys[relate(polys, lib, 'overlaps')]
+
+# calculate areas by land code of each block
+weighted_areas <- data.frame(matrix(0, nrow=nrow(r_poly), ncol=nrow(blocks)))
+colnames(weighted_areas) <- blocks$id
+rownames(weighted_areas) <- r_poly$code
+
+for(i in 1:ncol(weighted_areas)){
+  cropped_r <- crop(r_poly, blocks[i])
+  codes <- as.character(cropped_r$code)
+  areas <- expanse(cropped_r)
+  
+  # using land code as row name
+  weighted_areas[codes, i] <- areas
+}
+
+# apply land code weights
+for(row in rownames(weighted_areas)){
+  weight <- weights[weights[,1] == row, 2]
+  weighted_areas[row,] <- (weighted_areas[row,] * weight)
+}
+
+weighted_block_areas <- colSums(weighted_areas)
+
+```
+
+```{r intersection-areas, echo=FALSE}
+# same process over intersections
+
+# calculate areas by land code of each intersection
+weighted_areas <- data.frame(matrix(0, nrow=nrow(r_poly), ncol=nrow(blocks)))
+colnames(weighted_areas) <- blocks$id
+rownames(weighted_areas) <- r_poly$code
+
+for(i in 1:ncol(weighted_areas)){
+  x <- crop(blocks[i], lib)
+  cropped_r <- crop(r_poly, x)
+  codes <- as.character(cropped_r$code)
+  areas <- expanse(cropped_r)
+  
+  # using land code as row name
+  weighted_areas[codes, i] <- areas
+}
+
+# apply land code weights
+for(row in rownames(weighted_areas)){
+  weight <- weights[weights[,1] == row, 2]
+  weighted_areas[row,] <- (weighted_areas[row,] * weight)
+}
+
+weighted_int_areas <- colSums(weighted_areas)
+
+```
+
+```{r dasymetric-time, echo=FALSE}
+
+# The final weights used on each census block
+stat_weights <- (weighted_int_areas/weighted_block_areas)/sum(weighted_int_areas/weighted_block_areas)
+
+for(x in names(stat_weights)){
+  stat_weights[x] <- polys[as.numeric(x)]$dog_prop * stat_weights[x]
+}
+print('Final answer!')
+print(sum(stat_weights))
+
+
+```
