@@ -14,35 +14,34 @@ weighted_area <- function(poly, weights, nlcd_poly){
   return(sum(weighted_areas))
 }
 
-dasymetric_prediction <- function(nlcd_path, source_polys, target_poly, weights,
-                                  stat){
-  
+dasymetric_prediction <- 
+  function(nlcd_path, source_polys, target_poly, weights, stat){
   # Load in tiff as raster, project to lon/lat, then transform into polys for
   # each land type. activeCat ensures that the value active when transforming
-  # is in fact land code
+  # is in fact land code.
+  
+  # NOTE: .xml and aux.xml files need to be in directory as well, not
+  # just the tiff!
   nlcd_raster <- project(rast(nlcd_path), 'EPSG:4326')
   activeCat(nlcd_raster) <- 0
   nlcd_poly <- as.polygons(nlcd_raster)
-
-  # Filter source_polys to only those containing overlaps with target_poly
-  # and calculate weights
-  source_polys <- source_polys[relate(source_polys, target_poly, 'intersects')]
-  source_areas <- unlist(
-    lapply(1:length(source_polys), 
-           \(x) weighted_area(source_polys[x], weights, nlcd_poly))
-  )
   
-  # Create intersections between every source_poly and the target_poly,
-  # calculate areas
+  # Filter source_polys to only those containing overlaps with target_poly
+  # create intersections between each source poly and the target poly, then
+  # calculate weighted area
+  source_polys <- source_polys[relate(source_polys, target_poly, 'intersects')]
   intersection_polys <- crop(source_polys, target_poly)
   intersection_areas <- unlist(
     lapply(1:length(intersection_polys), 
            \(x) weighted_area(intersection_polys[x], weights, nlcd_poly))
   )
   
-  # Dasymetrically weighted average of stat of interest
-  estimate <- sum(
-    (intersection_areas/source_areas) * values(source_polys)[stat]
-  )
+  # Take weighted average of stat of interest
+  weighted_stats <- values(source_polys)[stat] * 
+    (intersection_areas/weighted_area(target_poly, weights, nlcd_poly))
+  
+  # Filter out NaN's introduced by weighted source_areas of 0 (i.e. they have
+  # no developed land), then get average
+  estimate <- sum(weighted_stats, na.rm=TRUE)
   return(estimate)
 }
