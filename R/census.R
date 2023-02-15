@@ -16,4 +16,5 @@ nlcd_path <- '../data/lacrosse.tiff'
 source_polys <- vect(subdivisions)
 target_poly <- vect(lacrosse)
 
-population_prediction(nlcd_path, source_polys, target_poly, weights)
+dasymetric(nlcd_path, source_polys, target_poly, weights)
+areal(source_polys, target_poly)

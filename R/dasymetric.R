@@ -14,8 +14,23 @@ weighted_area <- function(poly, weights, nlcd_raster){
   return(sum(weighted_areas))
 }
 
-population_prediction <- 
-  function(nlcd_path, source_polys, target_poly, weights){
+areal <- function(source_polys, target_poly){
+  # Filter source_polys to only those containing overlaps with target_poly
+  # create intersections between each source poly and the target poly, then
+  # calculate areas
+  source_polys <- source_polys[relate(source_polys, target_poly, 'intersects')]
+  intersection_polys <- crop(source_polys, target_poly)
+  
+  # Estimate
+  population_estimates <- 
+    values(source_polys)['value'] * 
+    expanse(intersection_polys)/
+    expanse(source_polys)
+  estimate <- sum(population_estimates, na.rm=TRUE)
+  return(estimate)
+}
+
+dasymetric <- function(nlcd_path, source_polys, target_poly, weights){
     # Load in tiff as raster, project to lon/lat, then transform into polys for
     # each land type. activeCat ensures that the value active when transforming
     # is in fact land code.
@@ -44,6 +59,6 @@ population_prediction <-
     
     # Filter out NaN's introduced by weighted source_areas of 0 (i.e. they have
     # no developed land), then get average
-    estimate <- sum(weighted_stats, na.rm=TRUE)
+    estimate <- sum(population_estimates, na.rm=TRUE)
     return(estimate)
   }
