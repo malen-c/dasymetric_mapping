@@ -4,9 +4,9 @@ library(terra)
 
 source('dasymetric.R')
 
-county <- get_decennial(geography = "county", state = 'WI', variables = "P001001", 
-                        year = 2010, geometry=TRUE, cache=TRUE)
-subdivisions <- get_decennial(geography = 'county subdivision', state = 'WI', county='063',
+county <- get_decennial(geography = "block", state = 'WI', variables = "P001001", 
+                        year = 2020, geometry=TRUE, cache=TRUE)
+subdivisions <- get_decennial(geography = 'block', state = 'WI', county='063',
                         variables = 'P001001', year=2010, geometry=TRUE, cache=TRUE)
 
 lacrosse <- county[str_detect(county$NAME, 'La Crosse'),]
